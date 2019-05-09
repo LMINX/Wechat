@@ -91,7 +91,7 @@ while ($islogging)
 
 
 
-gt
+
 
 #$CheckLoginResponse=Get-WebResponse  -SubUrl $CheckLoginSubUrl -GetParameter $CheckLoginParameter
 #$CheckLoginUrl=$BaseUrl+'/cgi-bin/mmwebwx-bin/login'

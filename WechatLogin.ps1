@@ -1,4 +1,5 @@
 $global:WebSession=$null
+$global:UserAgent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36' 
 function Get-WebResponse
 {
 param(
@@ -6,53 +7,78 @@ param(
     $BaseUrl="https://web.wechat.com",
     [Parameter(Position=1,mandatory=$false)]
     $SubUrl,
-    $headers='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36',
+    $UserAgent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36',
     [hashtable]$GetParameter,
     $AllowRedirect=$Ture,
-    $session,
-    $cookie
-
+    $session=$global:WebSession,
+    $Content,
+    $Body,
+    $Method
 )
 $FullUrl = $Baseurl+$SubUrl
 $Request = [System.UriBuilder]($FullUrl)
 $HttpValueCollection = [System.Web.HttpUtility]::ParseQueryString([String]::Empty)
-if ($GetParameter -ne $null)
-{
-    foreach ($item in $GetParameter.GetEnumerator()) {
-        $HttpValueCollection.Add($Item.Key, $Item.Value)
+    if ($GetParameter -ne $null)
+    {
+        foreach ($item in $GetParameter.GetEnumerator()) {
+            $HttpValueCollection.Add($Item.Key, $Item.Value)
+        }
+        $Request.Query = $HttpValueCollection.ToString()
     }
-    $Request.Query = $HttpValueCollection.ToString()
-}
-write-host  $Request.Uri 
-if ($global:WebSession -ne $null)
-{
-    if($AllowRedirect){
-        $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $headers  -WebSession $global:WebSession 
-    }
-    else{
-        "not allow redirect"
-        $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $headers -WebSession $global:WebSession  -MaximumRedirection 0 #-SessionVariable 'session'
-    }
+    #write-host  $Request.Uri 
+    if ($global:WebSession -ne $null)
+    {
+        if($AllowRedirect){
+            if($Content -ne $null -and $Body -ne $null -and $method -ne $null)
+            {
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $$UserAgent -WebSession $global:WebSession -ContentType $ContentType -Body $Body -Method $Method
+            }
+            else{
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent -WebSession $global:WebSession
+            }
+            
+        }
+        else{
+            if($Content -ne $null -and $Body -ne $null -and $method -ne $null)
+            {
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent -WebSession $global:WebSession -MaximumRedirection 0 -ContentType $ContentType -Body $Body -Method $Method
+            }
+            else{
+            "not allow redirect"
+            $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent -WebSession $global:WebSession  -MaximumRedirection 0 #-SessionVariable 'session'
+            }
+        }
 
-}
-else
-{
-    if($AllowRedirect){
-        $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $headers  -SessionVariable WebSession
-        $global:WebSession=$WebSession
     }
-    else{
-        "not allow redirect"
-        $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $headers  -SessionVariable WebSession -MaximumRedirection 0 #-SessionVariable 'session'
-        $global:WebSession=$WebSession
-    }
+    else
+    {
+        if($AllowRedirect){
+            if($Content -ne $null -and $Body -ne $null -and $method -ne $null)
+            {
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent -SessionVariable WebSession -ContentType $ContentType -Body $Body -method $Method
+            }
+            else{
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent  -SessionVariable WebSession
+            }
+            $global:WebSession=$WebSession
+        }
+        else{
+            if($Content -ne $null -and $Body -ne $null -and $method -ne $null)
+            {
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent -SessionVariable WebSession -MaximumRedirection 0 -ContentType $ContentType -Body $Body -method $Method
+            }
+            else{
+                "not allow redirect"
+                $Response= Invoke-WebRequest -Uri $Request.Uri -UserAgent $UserAgent  -SessionVariable WebSession -MaximumRedirection 0 #-SessionVariable 'session'
+            }
+            $global:WebSession=$WebSession
+        }
 
-}
- 
+    }
 return $Response
 }
 
-# check if uuid can be found in cookie
+#1.Get UUID ,can find in $global:websession
 $LoginGetParameter = @{'appid' = 'wx782c26e4c19acffb'; 'fun' = 'new' }
 $LoginSubUrl="/jslogin"
 $LoginResponse=Get-WebResponse  -SubUrl $LoginSubUrl -GetParameter $LoginGetParameter 
@@ -68,12 +94,13 @@ else {
     $uuid=$null
 }
  "uuid is {0}" -f $uuid
-#downlaod image by uuid
+
+#2.downlaod QRcode by uuid for scan 
 $BaseQrCodePicUri = "https://login.weixin.qq.com/qrcode/"
 $QrCodePicUri = $BaseQrCodePicUri + $uuid
 #$QrCodePicUri="https://login.weixin.qq.com/qrcode/AbtUISmjlQ=="
 #check web is connected or not 
-Invoke-WebRequest  -Uri $QrCodePicUri -OutFile Qrcode.jpeg #-SessionVariab  $session
+Invoke-WebRequest  -Uri $QrCodePicUri -OutFile Qrcode.jpeg 
 
 <#Scan the Qrcode on Mobile.
 if you dont scan windows.code will be 400,ask the user to scan immediately
@@ -102,36 +129,17 @@ while ($islogging)
         $CheckLoginResponse.content -match $regx
         $RedirectUrl=$matches[1]
         $RedirectUrl=$RedirectUrl.Substring(1, $RedirectUrl.Length - 2)
-        <# Mak
-        $regx=[regex]::new('(\?|&)\w+=[^\&]+')
-        $MatchedQueryParameter=$regx.matches($RedirectUrl)
-        $RedirectGetParameter = @{}
-        foreach ($v in $MatchedQueryParameter.Value)
-        {
-            $SplitPosition=$v.indexof('=')
-            $key=$v.Substring(1,$SplitPosition-1)
-            $value=$v.Substring($SplitPosition+1)
-            $RedirectGetParameter.add($key,$value)
-        }      
-        $RedirectGetParameter
-
-        $RedirectBaseUrl="https://wx.qq.com/cgi-bin/mmwebwx-bin/"
-        $RedirectSubUrl=""
-        #>
-        #$RedirectResponse=Get-WebResponse -BaseUrl $RedirectUrl -headers $headers -AllowRedirect $False
-        $RedirectResponse=Invoke-WebRequest -Uri $RedirectUrl -UserAgent $headers -SessionVariable ws -MaximumRedirection 0
-        
+        $RedirectResponse=Get-WebResponse -BaseUrl $RedirectUrl -UserAgent $global:UserAgent -AllowRedirect $False 
+        #$RedirectResponse=Invoke-WebRequest -Uri $RedirectUrl -UserAgent $headers -SessionVariable ws -MaximumRedirection 0     
         # <error><ret>0</ret><message></message><skey>@crypt_c8003a0e_60a091e9354b02ab0744821fe31eca0a</skey><wxsid>ULQ+YXHhZWZowUPE</wxsid><wxuin>417851615</wxuin><pass_ticket>mv8lxL%2BvzTrL7uL7sjsPLytX9IqIogN..           
         $RedirectGetParameter=@{}
         $XMlRedirectResponse=[xml]$RedirectResponse.Content
         $ret =$XMlRedirectResponse.error.ret
             if ($ret -eq 0)
-            {
-                
+            {  
                 #$XMLNodesName=4$XMlRedirectResponse.error|gm -MemberType property | select Name
                 $XMLNodesElements=$XMlRedirectResponse.error.ChildNodes
                 #.ChildNodes| % { $_.GetType().GetProperty("Name").GetValue($_, $null); }
-                
                 foreach ($node in  $XMLNodesElements)
                 {
                     #$XMlRedirectResponse.error.
@@ -140,23 +148,18 @@ while ($islogging)
                    $RedirectGetParameter.add($name,$value)
 
                 }
+
                 $InitSubUrl='/webwxinit'
+                $UserAgent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36' 
                 $regx=[regex]::new('https?://')
                 $InitBaseUrlPrefix=$regx.Matches($RedirectUrl).groups[0].Value
                 $InitBaseUrlWithoutPrefix=($RedirectUrl.Substring($InitBaseUrlPrefix.Length,$RedirectUrl.Length-$InitBaseUrlPrefix.Length))
                 $InitBaseUrl= $InitBaseUrlPrefix+$InitBaseUrlWithoutPrefix.Substring(0,$InitBaseUrlWithoutPrefix.IndexOf('/'))+'/cgi-bin/mmwebwx-bin'
-                $JasonRequestHead=@{
-                        ContentType='application/json; charset=UTF-8'
-                        'User-Agent'='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36' 
-                }
-                #Get-WebResponse -BaseUrl $InitBaseUrl -SubUrl $SubUrl-headers $headers 
-
-               # $InitPostParameter=@{'pass_ticket'=$RedirectGetParameter.pass_ticket;}
-                #test it on 5.23
-                $GetParameter=[ordered]@{
+                $InitGetParameter=[ordered]@{
                 'r'=[int]((get-date -UFormat %s)/1579*(-1))
                 'lang'='en_'
-                'pass_ticket'=$RedirectGetParameter.pass_ticket}
+                'pass_ticket'=$RedirectGetParameter.pass_ticket
+                }
                 $FullUrl = $InitBaseurl+$InitSubUrl
                 $Request = [System.UriBuilder]($FullUrl)
                 $HttpValueCollection = [System.Web.HttpUtility]::ParseQueryString([String]::Empty)
@@ -173,8 +176,6 @@ while ($islogging)
                     Sid=$RedirectGetParameter.Item('wxsid')
                     Skey=$RedirectGetParameter.Item('skey')
                     DeviceID=$Deviceid
-                    
-
                 }
                 
                 $InitPostPayload=@{
@@ -182,52 +183,95 @@ while ($islogging)
                 }
                 $JasonInitPostPayload=ConvertTo-Json $InitPostPayload -Compress
 
-                $InitResponse=invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -Verbose
-                $InitResponse.Content
-               
-                <#test on 5.23
-                 #C:\tools\curl\bin\curl.exe --header "Content-Type: application/json"  --request POST  --data  'BaseRequest: {Uin: "417851615", Sid: "HEXtffvosF1TOf19", Skey: "@crypt_c8003a0e_a37316a44cfa4b34a111888ff7780176",Uin: "417851615"}'  'https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxinit?r=-221489160&lang=en_&pass_ticket=LxsV%252Fm7pTRunnHVxnE2i7XV%252FPjDzJTUf39N%252BwP8uuQ8YMX7gGf4bgSoUzxhA9Q%252Bd'
-                # invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -WebSession $ws  -Verbose
-                invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -Verbose
-                #test json data
-                $u='https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxinit?r=-333061427&lang=en_&pass_ticket=E%252FLaConPRsxJMKNEA2j7JbdANFiGO5rN6etvDa1CP%252BMzkykX5RtLUiNXyrdSIrsU'
-                $bb='{"BaseRequest":{"Uin":"417851615","Sid":"b6hwWYm6MyBp9sMw","Skey":"@crypt_c8003a0e_c69746fe025f20a93210d641b64fbad7","DeviceID":"e650444945032896"}}'
-                $c=[pscustomobject][ordered]@{
-                    Uin='417851615'
-                    Sid='b6hwWYm6MyBp9sMw'
-                    Skey='@crypt_c8003a0e_c69746fe025f20a93210d641b64fbad7'
-                    DeviceID='e650444945032896'
-                    
+                #$InitResponse=invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -TimeoutSec 10  -UserAgent $UserAgent -TransferEncoding 'gzip'  -Verbose
+                #outfile  will not have messy code  by invoke-webrequest 
+                #invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -TimeoutSec 10  -UserAgent $UserAgent  -OutFile .\initResponse.txt -Verbose
+                #fix the bug of ps decode issue for utf8 (it will auto use iso)
 
+                $InitPostPayloadUTF8Encoding=[system.Text.Encoding]::UTF8.GetString((Get-WebResponse -Method 'post' -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload -UserAgent $global:UserAgent).RawContentStream.ToArray())
+                #$InitPostPayloadUTF8Encoding=[system.Text.Encoding]::UTF8.GetString((invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload  -TimeoutSec 10  -UserAgent $UserAgent).RawContentStream.ToArray())
+                $CustomerInitPostPayloadUTF8Encoding=$InitPostPayloadUTF8Encoding|ConvertFrom-Json 
+
+                #need to filter the emojo in respponse
+                $WechatAccountNickName=$CustomerInitPostPayloadUTF8Encoding.User.NickName
+                $InviteStartCount=$CustomerInitPostPayloadUTF8Encoding.InviteStartCount
+                $WechatAccountUserName=$CustomerInitPostPayloadUTF8Encoding.User.UserName
+                $SyncKeyList=$CustomerInitPostPayloadUTF8Encoding.SyncKey.list
+                $int=0
+                $SyncKey=""
+                foreach($s in $SyncKeyList){
+                    if($int -eq 0)
+                    {
+                        $SyncKey+="$($s.key)"+"_"+"$($s.val)"
+                    }
+                    else {
+                        $SyncKey+="|"+"$($s.key)"+"_"+"$($s.val)"
+                    }
+                $int++
                 }
-                $b=@{
-                    BaseRequest=$c
+                $Contract=$CustomerInitPostPayloadUTF8Encoding.ContactList
+                $global:WeChatContract=@()
+                foreach ($c in $Contract)
+                {
+                    if($c -match "@@+")
+                    {
+                        $c|Add-Member -NotePropertyName "ContractType" -NotePropertyValue "Friend"
+                    }
+                    elseif ($c -match "@+") {
+                        $c|Add-Member -NotePropertyName "ContractType" -NotePropertyValue "GroupChat"
+                    }
+                    else {
+                        $c|Add-Member -NotePropertyName "ContractType" -NotePropertyValue "WechatInternal"
+                    }
+                    $global:WeChatContract+=$c
                 }
-                invoke-webrequest -uri $u -method Post  -Body ($bb) -ContentType 'application/json'
-                invoke-webrequest -uri $u -method Post  -Body ($b|convertto-json -Compress) -ContentType 'application/json'
-                 $b|convertto-json -Compress
-                $b1='{"BaseRequest":{"Uin":"417851615","Sid":"2RCKTwduCWBYNLQm","Skey":"@crypt_c8003a0e_702c3b1555c01f53a5b5cbd466f472d4","DeviceID":"e636525688413471"}}'
-                invoke-restmethod -uri $Request.Uri -method Post  -Body $b1 -ContentType 'application/json'
-                 invoke-restmethod -uri $Request.Uri -method Post  -Body $JasonInitPostPayload  -ContentType 'application/json'
-                # invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload
-                 #invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body   ($InitPostPayload |convertto-json)  -WebSession $ws
-                # invoke-restmethod -uri $Request.Uri -Method Post  -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload 
-                #;charset=UTF-8
-                #invoke-webrequest -uri 'https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxinit' -Method Post -UserAgent $headers -ContentType 'application/json;charset=UTF-8' -Body  $JasonInitPostPayload
-                
-    
-                  # r = self.s.post(url, params=params, data=json.dumps(data), headers=headers)
-               # dic = json.loads(r.content.decode('utf-8', 'replace'))
-               #>
+                $global:WeChatContract|ft username,nickname,contracttype
+
+                <#
+                #will test on 6/4
+                $WebwxStatusNotifySubUrl='/webwxstatusnotify'
+                $UserAgent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36' 
+                $regx=[regex]::new('https?://')
+                $WebwxStatusNotifyBaseUrlPrefix=$regx.Matches($RedirectUrl).groups[0].Value
+                $WebwxStatusNotifyBaseUrlWithoutPrefix=($RedirectUrl.Substring($WebwxStatusNotifyBaseUrlPrefix.Length,$RedirectUrl.Length-$WebwxStatusNotifyBaseUrlPrefix.Length))
+                $WebwxStatusNotifyBaseUrl= $WebwxStatusNotifyBaseUrlPrefix+$WebwxStatusNotifyBaseUrlWithoutPrefix.Substring(0,$WebwxStatusNotifyBaseUrlWithoutPrefix.IndexOf('/'))+'/cgi-bin/mmwebwx-bin'
+                $JasonRequestHead=@{
+                        ContentType='application/json; charset=UTF-8'
+                }
+
+                $GetParameter=[ordered]@{
+                'lang'='en_'
+                'pass_ticket'=$RedirectGetParameter.pass_ticket}
+                $FullUrl = $WebwxStatusNotifyBaseUrl+$WebwxStatusNotifySubUrl
+                $Request = [System.UriBuilder]($FullUrl)
+                $HttpValueCollection = [System.Web.HttpUtility]::ParseQueryString([String]::Empty)
+                if ($GetParameter -ne $null)
+                {
+                    foreach ($item in $GetParameter.GetEnumerator()) {
+                        $HttpValueCollection.Add($Item.Key, $Item.Value)
+                    }
+                    $Request.Query = $HttpValueCollection.ToString()
+                }
+
+                $WebwxStatusNotifyPostPayload=[pscustomobject][ordered]@{
+                    BaseRequest=$InitPostParameter
+                    Code=3
+                    FromUserName=$WechatAccountUserName
+                    ToUserName=$WechatAccountUserName
+                    ClientMsgId=[int](get-date -UFormat %s)                 
+                }
+
+                $JasonWebwxStatusNotifyPostPayload=ConvertTo-Json $WebwxStatusNotifyPostPayload -Compress 
+                invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonWebwxStatusNotifyPostPayload -TimeoutSec 10  -UserAgent $UserAgent -OutFile initResponse.txt -Verbose
+                $WebwxStatusNotifyResponse=invoke-webrequest -uri  $Request.Uri -Method Post -ContentType 'application/json;charset=UTF-8' -Body  $JasonWebwxStatusNotifyPostPayload -TimeoutSec 10  -UserAgent $UserAgent -TransferEncoding 'gzip'-Verbose
+                $CustomerWebwxStatusNotifyResponse=$WebwxStatusNotifyResponse.Content|ConvertFrom-Json 
+                #>
+                #show mobile login
             }
             else {
                 # ret is not 0  need to rerun the scrpit
                 #failed to login need to restart the login process by ret code
             }
-
-        
-
-
 
 
         }
@@ -246,43 +290,3 @@ while ($islogging)
         Start-Sleep 3
     }
 }
-
-
-
-
-
-#$CheckLoginResponse=Get-WebResponse  -SubUrl $CheckLoginSubUrl -GetParameter $CheckLoginParameter
-#$CheckLoginUrl=$BaseUrl+'/cgi-bin/mmwebwx-bin/login'
-
-#https://login.wx.qq.com/cgi-bin/mmwebwx-bin/login?loginicon=true&uuid=YYZwaWlqGg==&tip=1&r=1675818805&_=1557397308599
-
-
-#window.code=200;
-#window.redirect_uri="https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxnewloginpage?ticket=AQNnO1W0Qy-CKlFPrnXeTSoQ@qrticket_0&uuid=oYKCPxJi3A==&lang=en_&scan=1557403466";
-
-
-#checklogin maybe user is alredy login
-
-#$rr=Invoke-WebRequest -Uri $RedirectUrl -UserAgent $headers
-#Get-WebResponse -BaseUrl $RedirectUrl -SubUrl $InitSubUrl -headers $headers
-<#
-
-$p=@{
-    DeviceID="e478040216137683"
-    Sid="ID11DffAjjVxiQas"
-    Skey="@crypt_c8003a0e_b7eeac1b94e229de54db2bc7eed54d44"
-    Uin="417851615"
-}
-$b=@{
-    BaseRequest=$p
-}
-
-$j=$b|convertto-Json
-
-
-$u='https://wx.qq.com/cgi-bin/mmwebwx-bin/webwxinit?r=-139345914&lang=en_&pass_ticket=dZB19bd5zWNxXv7%252BcdS2CDHSND9wWy0y%252FksfHTwwQEWxOg7qZfjWXoU7w8fSx9Vp'
-
-Invoke-WebRequest -Uri $u -Method post -Body $b -ContentType 'application/json;charset=UTF-8' 
-#>
-
-

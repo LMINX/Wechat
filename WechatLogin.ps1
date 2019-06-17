@@ -1,7 +1,12 @@
+# 2019/06/17 can reply the wechat message from special chatroom
 $global:WebSession=$null
 $global:UserAgent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36' 
 $global:WxCore=[pscustomobject]@{}
 $global:WxContracts=@()
+$global:WxGroupContracts=@()
+$global:WxChatRoom=@()
+$global:WxChatRoomNickName="Nike Windows Team"
+
 function Get-WebResponse
 {
 param(
@@ -186,6 +191,25 @@ function Get-WxContract
     return $JsonWebwxGetContactResponseUTF8Encoding
 }
 
+function Find-WxChatRoom
+{
+    param(
+    [Parameter(Mandatory=$true)]
+    [String]
+    $WxChatRoomNickName
+    )
+    foreach ($Room in $global:WxChatRoom)
+    {
+        
+        if($Room.NickName -match "$WxChatRoomNickName")
+        {
+            return $Room
+            break
+        }
+
+    }
+
+}
 
 #1.Get UUID ,can find in $global:websession ,need test on 6/6
 if($global:WebSession -ne $null)
@@ -449,52 +473,23 @@ while ($islogging)
                     }
                     while ($seq -ne 0)
    
-                    <# send message test successed on  6/10 
-                    $WebWxSendMsgSubUrl='/webwxsendmsg'
-                    #$SyncCheckFullUrl = $global:WxCore.WxAPIBaseUrl+$SyncCheckSubUrl
-                    #$SyncCheckRequest = [System.UriBuilder]($SyncCheckFullUrl)
 
-                    $WebWxSendMsgPostParameter=[ordered]@{
-                        'pass_ticket'=$global:WxCore.pass_ticket
-                    }
-                    
-                    $msgType=1
-                    $content='Hello Wechat By Powershell Script'
-                    #need to search from contract list
-                    $ToUserName='filehelper'
-                    $Msg=[ordered]@{
-                        #type 1 means text message
-                        'Type'=$msgType
-                        'Content'=$content
-                        'FromUserName'=$global:WxCore.UserName
-                        'ToUserName'=$ToUserName
-                        'LocalID'= [int]((get-date -UFormat %s))*1e4
-                        'ClientMsgId'=[int]((get-date -UFormat %s))*1e4
-                        }
-                    $WebWxSendMsgPostPayload=[ordered]@{
-                        'BaseRequest'=$global:WxCore.BaseRequest
-                        'Msg'=$Msg
-                        'Scene'=0
-                    }
-                    $JsonWebWxSendMsgPostPayload=ConvertTo-Json $WebWxSendMsgPostPayload -Compress
-                    $JsonWebWxSendResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -SubUrl  $WebWxSendMsgSubUrl -Getparameter $WebWxSendMsgPostParameter -Method 'post' -ContentType 'application/json;charset=UTF-8' -Body  $JsonWebWxSendMsgPostPayload -UserAgent $global:UserAgent
-                    #>
                    
-                    # receive message process, remove to test send message function.
-                    $SyncCheckSubUrl='/synccheck'
-                    $SyncCheckGetParameter=[ordered]@{
-                        'r'=[int]((get-date -UFormat %s)/1579*(-1))
-                        'skey'=$global:WxCore.skey
-                        'sid'=$global:WxCore.sid
-                        'uin'=$global:WxCore.uin
-                        'deviceid'=$global:WxCore.deviceid
-                        'synckey'=$global:WxCore.synckey
-                        '_'=$global:WxCore.logontime
-                    }
-                    $global:WxCore.logontime+=1
+
                     
                     while ($global:WxCore.alive -eq $True)
                     {
+                        $SyncCheckSubUrl='/synccheck'
+                        $SyncCheckGetParameter=[ordered]@{
+                            'r'=[int]((get-date -UFormat %s)/1579*(-1))
+                            'skey'=$global:WxCore.skey
+                            'sid'=$global:WxCore.sid
+                            'uin'=$global:WxCore.uin
+                            'deviceid'=$global:WxCore.deviceid
+                            'synckey'=$global:WxCore.synckey
+                            '_'=$global:WxCore.logontime
+                        }
+                        $global:WxCore.logontime+=1
                         $SyncCheckResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -SubUrl  $SyncCheckSubUrl -GetParameter  $SyncCheckGetParameter -UserAgent $global:UserAgent -AllowRedirect $True #-Timeout 60
                         #need to figure out how to know the synccheck has correct response
                         if ($SyncCheckResponse -ne $null)
@@ -508,44 +503,200 @@ while ($islogging)
                                     }
                                     $retcode=$JsonSyncCheckResponse.item('WindowsSyncCheck').retcode
                                     $selector=$JsonSyncCheckResponse.item('WindowsSyncCheck').selector
-                                    if($selector -eq 0){
-                                        #keep loading...
+                                    if($retcode -eq 0)
+                                    {
+                                        if($selector -eq 0){
+                                            #keep loading...
+                                        }
+                                        elseif($selector -eq 2) {
+                                            #get new message to produce
+                                            if ($global:WxCore.SyncCheckKey -eq $null)
+                                            {
+                                                $WebSyncSubUrl='/webwxsync'
+                                                $WebSyncGetParameter=[ordered]@{    
+                                                    'sid'=$global:WxCore.sid
+                                                    'skey'=$global:WxCore.skey
+                                                    'lang'='en_'
+                                                    'pass_ticket'=$global:WxCore.pass_ticket
+                                                }
+                                            
+                                                $WebSyncPostPayload=[ordered]@{    
+                                                    'BaseRequest'=$global:WxCore.BaseRequest
+                                                    'SyncKey'=$global:WxCore.synckeyList
+                                                    'rr'=([int]((get-date -UFormat %s))).tostring().gethashcode()*(-1)
+                                                }
+                                                $JsonWebSyncPostPayload=ConvertTo-Json $WebSyncPostPayload -Compress -Depth 3
+                                                "WebSyncResponse"
+                                                $WebSyncResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -Method 'post'  -ContentType 'application/json;charset=UTF-8' -SubUrl  $WebSyncSubUrl -GetParameter  $WebSyncGetParameter -Body $JsonWebSyncPostPayload -UserAgent $global:UserAgent -AllowRedirect $True #-Timeout 60
+                                                $WebSyncResponseUTF8Encoding=[system.Text.Encoding]::UTF8.GetString($WebSyncResponse.RawContentStream.ToArray())
+                                                $JsonWebSyncResponseUTF8Encoding=$WebSyncResponseUTF8Encoding|ConvertFrom-Json
+                                                $SyncCheckkey=$JsonWebSyncResponseUTF8Encoding.SyncCheckKey
+                                                $global:WxCore.synckeyList=$SyncCheckkey
+                                                $global:WxCore|add-member -NotePropertyName 'SyncCheckkey' -NotePropertyValue $SyncCheckkey   
+                                                
+                                            }
+                                            else {
+                                                $WebSyncSubUrl='/webwxsync'
+                                                $WebSyncGetParameter=[ordered]@{    
+                                                    'sid'=$global:WxCore.sid
+                                                    'skey'=$global:WxCore.skey
+                                                    'lang'='en_'
+                                                    'pass_ticket'=$global:WxCore.pass_ticket
+                                                }
+                                            
+                                                $WebSyncPostPayload=[ordered]@{    
+                                                    'BaseRequest'=$global:WxCore.BaseRequest
+                                                    'SyncKey'=$global:WxCore.synckeyList
+                                                    'rr'=([int]((get-date -UFormat %s))).tostring().gethashcode()*(-1)
+                                                }
+                                                $JsonWebSyncPostPayload=ConvertTo-Json $WebSyncPostPayload -Compress -Depth 3
+                                                "WebSyncResponse"
+                                                $WebSyncResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -Method 'post'  -ContentType 'application/json;charset=UTF-8' -SubUrl  $WebSyncSubUrl -GetParameter  $WebSyncGetParameter -Body $JsonWebSyncPostPayload -UserAgent $global:UserAgent -AllowRedirect $True #-Timeout 60
+                                                $WebSyncResponseUTF8Encoding=[system.Text.Encoding]::UTF8.GetString($WebSyncResponse.RawContentStream.ToArray())
+                                                $JsonWebSyncResponseUTF8Encoding=$WebSyncResponseUTF8Encoding|ConvertFrom-Json
+                                                $SyncCheckkey=$JsonWebSyncResponseUTF8Encoding.SyncCheckKey
+                                                $global:WxCore.synckeyList=$SyncCheckkey
+                                                $global:WxCore.SyncCheckkey=$SyncCheckkey 
+                                                $SyncKeyList=$SyncCheckkey.list
+                                                $int=0
+                                                $SyncKey=""
+                                                foreach($s in $SyncKeyList){
+                                                    if($int -eq 0)
+                                                    {
+                                                        $SyncKey+="$($s.key)"+"_"+"$($s.val)"
+                                                    }
+                                                    else {
+                                                        $SyncKey+="|"+"$($s.key)"+"_"+"$($s.val)"
+                                                    }
+                                                $int++
+                                                }
+                                                $global:WxCore.synckeyList=$SyncCheckkey
+                                                $global:WxCore.synckey=$SyncKey  
+                                                
+                                            }
+                                           
+
+                                            #Chatromm need to get from the new message and use webwxbatchgetcontact to get detail ,such as chatroom nickname and member info
+                                            $MsgList=$JsonWebSyncResponseUTF8Encoding.AddMsgList
+                                          
+                                            #update the chatroom (group) List test on 06/14
+                                            foreach ($m in $MsgList){
+                                                "msg is $($m.content)"
+                                                if($m.ToUserName -match "@@+")
+                                                {
+                                                    $GroupChatUserName =$m.ToUserName  
+                                                }
+                                                elseif($m.FromUserName -match "@@+"){
+                                                    $GroupChatUserName=$m.FromUserName 
+                                                } 
+                                                else{
+
+                                                }
+                                                if ($GroupChatUserName -in $global:WxGroupContracts)
+                                                {
+                                                    #$global:WxGroupContracts+=$GroupChatUserName
+                                                }
+                                                else {
+                                                    $WebWxBatchGetContactSubUrl='/webwxbatchgetcontact'
+                                                    $WebWxBatchGetContactGetParameter=[ordered]@{  
+                                                        'type'='ex'  
+                                                        'r'=[math]::ceiling(([Double](get-date -UFormat %s))*1000)
+                                                        'lang'='en_'
+                                                        'pass_ticket'=$global:WxCore.pass_ticket
+                                                    }
+                                                    $GroupUserList=@()
+                                                    $Userlist=@{   
+                                                        'UserName'=$GroupChatUserName
+                                                    }
+                                                    $GroupUserList+=$Userlist
+                                                    
+                                                    $WebWxBatchGetContactPostPayload=[ordered]@{    
+                                                        'BaseRequest'=$global:WxCore.BaseRequest
+                                                        'Count'=1
+                                                        'List'=$GroupUserList
+                                                    }
+                                                    $JsonWebWxBatchGetContactcPostPayload=ConvertTo-Json $WebWxBatchGetContactPostPayload -Compress -Depth 3
+                                                    $WebWxBatchGetContactResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -Method 'post'  -ContentType 'application/json;charset=UTF-8' -SubUrl  $WebWxBatchGetContactSubUrl -GetParameter  $WebWxBatchGetContactGetParameter -Body $JsonWebWxBatchGetContactcPostPayload -UserAgent $global:UserAgent -AllowRedirect $True #-Timeout 60
+                                                    $WebWxBatchGetContactResponseUTF8Encoding=[system.Text.Encoding]::UTF8.GetString($WebWxBatchGetContactResponse.RawContentStream.ToArray())
+                                                    $JsonWebWxBatchGetContactResponseUTF8Encoding=$WebWxBatchGetContactResponseUTF8Encoding|ConvertFrom-Json
+                                                    #$JsonWebWxBatchGetContactResponseUTF8Encoding|gm
+                                                    $global:WxChatRoom+=$JsonWebWxBatchGetContactResponseUTF8Encoding.ContactList
+                                                    $global:WxGroupContracts+=$GroupChatUserName
+
+                                                    #get nickname for chatroom for sending message 
+                                                    #repeat the message in Nike windows Team 
+                                                    
+                                                          
+                                                }
+                                                $FoundChatRoom=Find-WxChatRoom -WxChatRoomNickName $global:WxChatRoomNickName
+                                                if($GroupChatUserName -eq $FoundChatRoom.UserName)
+                                                {
+                                                    $WebWxSendMsgSubUrl='/webwxsendmsg'
+                                                    #$SyncCheckFullUrl = $global:WxCore.WxAPIBaseUrl+$SyncCheckSubUrl
+                                                    #$SyncCheckRequest = [System.UriBuilder]($SyncCheckFullUrl)
+
+                                                    $WebWxSendMsgPostParameter=[ordered]@{
+                                                        'pass_ticket'=$global:WxCore.pass_ticket
+                                                    }
+                                                    
+                                                    $msgType=1
+                                                    #$content='Hello Wechat By Powershell Script'
+                                                    $content=$m.content+"Reply By Powershell Script"
+                                                    #need to search from contract list
+                                                    $ToUserName=$GroupChatUserName
+                                                    $Msg=[ordered]@{
+                                                        #type 1 means text message
+                                                        'Type'=$msgType
+                                                        'Content'=$content
+                                                        'FromUserName'=$global:WxCore.UserName
+                                                        'ToUserName'=$ToUserName
+                                                        'LocalID'= [int]((get-date -UFormat %s))*1e4
+                                                        'ClientMsgId'=[int]((get-date -UFormat %s))*1e4
+                                                        }
+                                                    $WebWxSendMsgPostPayload=[ordered]@{
+                                                        'BaseRequest'=$global:WxCore.BaseRequest
+                                                        'Msg'=$Msg
+                                                        'Scene'=0
+                                                    }
+                                                    $JsonWebWxSendMsgPostPayload=ConvertTo-Json $WebWxSendMsgPostPayload -Compress
+                                                    $WebWxSendResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -SubUrl  $WebWxSendMsgSubUrl -Getparameter $WebWxSendMsgPostParameter -Method 'post' -ContentType 'application/json;charset=UTF-8' -Body  $JsonWebWxSendMsgPostPayload -UserAgent $global:UserAgent
+                                                    $JsonWebWxSendResponse=$WebWxSendResponse|ConvertFrom-Json
+                                                    
+                                                }
+                                                else {
+                                                    
+                                                }
+                                            }
+
+                                            
+                                            #keep working on testing on 6/11 SyncKey is null.
+                                            # send message to windows team wechat group for git repo address 'https://github.com/LMINX/Wechat'
+                                            #break
+
+                                        }
+                                        else {
+                                            "throw unkonw selector for sync response"
+                                            break
+                                        }
+                                    start-sleep 5
                                     }
                                     else {
-                                        #get new message to produce
-                                        $WebSyncSubUrl='/webwxsync'
-                                        $WebSyncGetParameter=[ordered]@{    
-                                            'sid'=$global:WxCore.sid
-                                            'skey'=$global:WxCore.skey
-                                            'lang'='en_'
-                                            'pass_ticket'=$global:WxCore.pass_ticket
-                                        }
-                                        $WebSyncPostPayload=[ordered]@{    
-                                            'baserequest'=$global:WxCore.BaseRequest
-                                            'synckey'=$global:WxCore.synckeyList
-                                            'rr'=[int]((get-date -UFormat %s))*(-1)
-                                        }
-                                        $JsonWebSyncPostPayload=ConvertTo-Json $WebSyncPostPayload -Compress -Depth 3
-                                        "WebSyncResponse"
-                                        $WebSyncResponse=Get-WebResponse -BaseUrl $global:WxCore.WxAPIBaseUrl -Method 'post' -SubUrl  $WebSyncSubUrl -GetParameter  $WebSyncGetParameter -Body $JsonWebSyncPostPayload -UserAgent $global:UserAgent -AllowRedirect $True #-Timeout 60
-                                        $WebSyncResponseUTF8Encoding=[system.Text.Encoding]::UTF8.GetString($WebSyncResponse.RawContentStream.ToArray())
-                                        $JsonWebSyncResponseUTF8Encoding=$WebSyncResponseUTF8Encoding|ConvertFrom-Json
-                                        $SyncCheckkey=$JsonWebSyncResponseUTF8Encoding.SyncCheckKey
-                                        #keep working on testing on 6/11 SyncKey is null.
+                                        "throw unkonw retcode for sync response"
                                         break
-
                                     }
-    
+                                        
                                 }
                                 else {
                                     "throw unkonw response for SyncCheck"
                                     $global:WxCore.alive=$false
+                                    break
                                 }
                         }
                         else 
                         {            
                             "throw exception not able to get SyncCheckResponse"
                             $global:WxCore.alive=$false
+                            break
                         }      
                     }
                     
